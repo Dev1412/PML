@@ -1,0 +1,222 @@
+---
+title: "<u>Practical Machine Learning Project - Human Activity Recognition Report</u>"
+author: "Deviprasad Pandey"
+date: "22 April 2018"
+output:
+  html_document: null
+  md_document: yes
+  toc: yes
+  variant: markdown_github
+theme: united
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## The Goal
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+
+## Setup
+
+Below libraries were used in this project. One would need to install and load them in their working enviorment
+
+```{r warning=TRUE, error=FALSE}
+library(rattle)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+library(RColorBrewer)
+```  
+
+## Downloading Data
+
+Download the data files provided. Check if they are present in the data folder and if not download them from the url provided. We have been provided by 2 urls, one for training data and other for test data.
+
+```{r warning=FALSE, error=FALSE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+
+if (!file.exists("./data")) {
+dir.create("./data")
+}
+
+if (!file.exists(trainFile)) {
+download.file(trainUrl, destfile = trainFile)
+}
+
+if (!file.exists(testFile)) {
+download.file(testUrl, destfile = testFile)
+}
+
+rm(trainUrl)
+rm(testUrl)
+```  
+
+## Loading the data
+
+Once the data is downloaded from the data source, we can read the two csv files into two data frames. When loaded the data first time, noticed that it contains columns with values like "#DIV/0!". Hence passing such values to be treated as NA when loading the data.
+
+```{r warning=FALSE, error=FALSE}
+train <- read.csv(trainFile,na.strings = c("NA","#DIV/0!", ""))
+test <- read.csv(testFile,na.strings = c("NA","#DIV/0!", ""))
+
+dim(train)
+dim(test)
+
+```  
+
+By looking at the structure of the train data we see that, the training data set contains `r dim(train)[1]` observations and `r dim(train)[2]` variables, while the testing data set contains `r dim(test)[1]` observations and `r dim(test)[2]` variables. The `classe` variable in the training set is the outcome to predict. 
+
+## Cleaning Data  
+In this step, we will clean the dataset and get rid of observations with missing values as well as some meaningless variables.  
+
+```{r warning=FALSE, error=FALSE}
+
+train <- train[,colSums(is.na(train))==0]
+test <- test[,colSums(is.na(test))==0]
+
+##Removing few unwanted variables
+
+regex <- grepl("^X|timestamp|user_name", names(train))
+
+train <- train[, !regex]
+test <- test[, !regex]
+dim(train)
+dim(test)
+str(train)
+```  
+
+After the cleanup we now have cleaned training data set which contains `r dim(train)[1]` observations and `r dim(train)[2]` variables, while the test data set contains `r dim(test)[1]` observations and `r dim(test)[2]` variables.
+
+## Split Training Set into train and validation
+
+Now we will split  cleaned training set into a two parts. One to be used for training (70%) the model and second to be used for validation (30%). 
+We will use the validation data set to conduct cross validation.  
+
+```{r warning=FALSE, error=FALSE}
+set.seed(1200) # For reproducibile purpose
+mysplit <- createDataPartition(train$classe, p = 0.70, list = FALSE)
+training <- train[mysplit, ]
+validation <- train[-mysplit, ]
+```  
+
+
+Dataset now consists of `r dim(training)[2]` variables with the observations divided as following:  
+1. Training Data: `r dim(training)[1]` observations.  
+2. Validation Data: `r dim(validation)[1]` observations.  
+3. Testing Data: `r dim(test)[1]` observations.  
+
+## Exploratory analysis
+The variable `classe` contains 5 levels. The plot of the outcome variable shows the frequency of each levels in the Training data.
+
+```{r exploranalysis, echo=TRUE}
+plot(training$classe, col="orange", main="Levels of the variable classe", xlab="classe levels", ylab="Frequency")
+```
+
+The plot above shows that Level A is the most frequent classe. D appears to be the least frequent one.
+
+## Predictive Models   
+
+In this section a decision tree and random forest will be applied to the data.
+
+### Decision Tree
+
+Fit a predictive model for activity recognition using <b>Decision Tree</b> algorithm.
+
+```{r warning=FALSE, error=FALSE}
+modelTree <- rpart(classe ~ ., data = training, method = "class")
+prp(modelTree)
+
+```  
+
+Now, we estimate the performance of the model on the <b>validation</b> data set.
+
+```{r warning=FALSE, error=FALSE}
+predictTree <- predict(modelTree, validation, type = "class")
+
+confusionMatrix(validation$classe, predictTree)
+
+accuracy <- postResample(predictTree, validation$classe)
+ose <- 1 - as.numeric(confusionMatrix(validation$classe, predictTree)$overall[1])
+```  
+
+
+The Estimated Accuracy of the Decision Tree model Model is `r accuracy[1]*100`% and the Estimated Out-of-Sample Error is `r ose*100`%.  
+
+
+### Random Forest
+We fit a predictive model for activity recognition using <b>Random Forest</b> algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general.
+
+We will use <b>5-fold cross validation</b> when applying the algorithm.
+
+```{r warning=FALSE, error=FALSE}
+modelRF <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", 5), ntree = 250)
+modelRF
+```  
+
+Now, we estimate the performance of the model on the <b>validation</b> data set.
+
+```{r warning=FALSE, error=FALSE}
+predictRF <- predict(modelRF, validation)
+
+confusionMatrix(validation$classe, predictRF)
+
+accuracyRF <- postResample(predictRF, validation$classe)
+oseRF <- 1 - as.numeric(confusionMatrix(validation$classe, predictRF)$overall[1])
+```  
+
+The Estimated Accuracy of the Random Forest Model is `r accuracyRF[1]*100`% and the Estimated Out-of-Sample Error is `r oseRF*100`%.  
+Random Forests yielded better Results, as expected.
+The Random Forest model is choosen.
+  
+## Predicting The Manner of Exercise for Test Data Set  
+
+Now, we apply the <b>Random Forest</b> model to the original testing data set downloaded from the data source. We remove the problem_id column first. 
+
+```{r warning=FALSE, error=FALSE}
+rm(accuracy)
+rm(ose)
+preTest <- predict(modelRF, test[, -length(names(test))])
+
+```  
+
+## Generating Files to submit as answers for the Assignment  
+Function to generate files with predictions to submit for assignment.  
+
+```{r warning=FALSE, error=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./Assignment_Solutions/problem_id_",i,".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+```  
+
+Generating the Files.
+
+```{r warning=FALSE, error=FALSE}
+pml_write_files(predict(modelRF, test[, -length(names(test))]))
+```  
+
